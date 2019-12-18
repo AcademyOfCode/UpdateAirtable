@@ -93,6 +93,9 @@ def ExportAllOrders():
 
     responseJSON, error = getRequestWithRateLimit(squarespaceOrderApiURL, headers, params)
 
+    if not responseJSON['result']:
+        return None, endDate
+
     for index in range(len(responseJSON['result'])):
         skipOrder = False
         for productName in productNameIgnoreList:
@@ -102,8 +105,7 @@ def ExportAllOrders():
         if not skipOrder and responseJSON['result'][index]['refundedTotal']['value'] == '0.00':
             orderList.append(responseJSON['result'][index])
 
-    if responseJSON['result']:
-        print('Page ' + str(pageNumber) + ' Order Request Completed.')
+    print('Page ' + str(pageNumber) + ' Order Request Completed.')
 
     while responseJSON['pagination']['hasNextPage'] == True:
         pageNumber += 1
