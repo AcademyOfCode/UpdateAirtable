@@ -2,14 +2,13 @@ import argparse
 import io
 import os
 import string
-
 import requests
 import copy
 import time
 import dateutil.parser
 import datetime
 import pickle
-
+import slack
 from googleapiclient import errors, http
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.discovery import build
@@ -23,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('squarespaceOrderApiKey')
 parser.add_argument('squarespaceInventoryApiKey')
 parser.add_argument('airtableApiKey')
+parser.add_argument('slackApiKey')
 args = parser.parse_args()
 
 squarespaceOrderApiKey = args.squarespaceOrderApiKey
@@ -31,6 +31,8 @@ squarespaceInventoryApiKey = args.squarespaceInventoryApiKey
 squarespaceInventoryApiURL = 'https://api.squarespace.com/1.0/commerce/inventory'
 
 airtableApiKey = args.airtableApiKey
+
+slackClient = slack.WebClient(token=args.slackApiKey)
 
 productNameIgnoreList = ['Custom payment amount']
 airtableAppIdDict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
@@ -574,6 +576,11 @@ def DownloadFromGoogleDrive(drive):
             print('Download Complete')
             return
 
+def sendSlackMessage(channel, message):
+    print('\nSending slack message: ' + message)
+
+    response = slackClient.chat_postMessage(channel=channel,text=message)
+
 def getSubscriptionDetails():
     from airtable import airtable
 
@@ -614,6 +621,9 @@ def main():
     print('\nAirtable is up to date')
 
     WriteLastGenerationDate(endDate, drive)
+
+    endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
+    sendSlackMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
 
     end = time.time()
 
