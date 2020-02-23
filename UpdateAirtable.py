@@ -1,10 +1,20 @@
 import argparse
+import io
 import os
+import string
+
 import requests
 import copy
 import time
 import dateutil.parser
 import datetime
+import pickle
+
+from googleapiclient import errors, http
+from googleapiclient.http import MediaFileUpload
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 from datetime import timedelta
 from builtins import any as b_any
 from threading import BoundedSemaphore as BoundedSemaphore, Timer
@@ -24,8 +34,11 @@ airtableApiKey = args.airtableApiKey
 
 productNameIgnoreList = ['Custom payment amount']
 airtableAppIdDict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
-                     'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP'}
+                     'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk'}
 nonTechClubClassList = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue']
+
+lastUpdateDateFileName = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
+lastUpdateDateID = '1JqP_9XCoeb8B8dlhyTYcuRRltr24CwSCnXyAfckAoPA'
 
 class RatedSemaphore(BoundedSemaphore):
     """Limit to 1 request per `period / value` seconds (over long run)."""
@@ -47,13 +60,19 @@ class RatedSemaphore(BoundedSemaphore):
     def release(self):
         pass # do nothing (only time-based release() is allowed)
 
-def WriteLastGenerationDate(endDate):
-    with open(os.path.dirname(os.path.abspath(__file__)) + '\LastClassListGenerationDate.txt', 'w') as file:
+def WriteLastGenerationDate(endDate, drive):
+    with open(lastUpdateDateFileName, 'w') as file:
         file.write(endDate)
 
-def ReadLastGenerationDate():
-    with open(os.path.dirname(os.path.abspath(__file__)) + '\LastClassListGenerationDate.txt') as file:
-        lastEndDate = dateutil.parser.parse(file.readlines()[0])
+    EditLastClassListGenerationDateFile(drive)
+
+def ReadLastGenerationDate(drive):
+
+    DownloadFromGoogleDrive(drive)
+
+    with open(lastUpdateDateFileName) as file:
+        lastEndDate = dateutil.parser.parse(''.join([x for x in file.readlines()[0] if x in string.printable]))
+
     startDate = lastEndDate + timedelta(microseconds=1)
 
     return startDate.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
@@ -68,11 +87,11 @@ def getRequestWithRateLimit(apiURL, headers=None, params=None):
         print(e)
         return None, e
 
-def ExportAllOrders():
+def ExportAllOrders(drive):
     pageNumber = 1
     orderList = []
 
-    startDate = ReadLastGenerationDate()
+    startDate = ReadLastGenerationDate(drive)
     endDate = datetime.datetime.now()
 
     if time.daylight and time.localtime().tm_isdst > 0:
@@ -245,7 +264,7 @@ def splitVenueLists(ordersList):
 
     return grouped
 
-def updateAirtableClassInfo(currentTermVariantsList):
+def updateClassTable(currentTermVariantsList):
     print('\nUpdating Class Information on Airtable...')
 
     for venueVariants in currentTermVariantsList:
@@ -281,7 +300,7 @@ def updateAirtableClassInfo(currentTermVariantsList):
 
                 print('Inserting "' + venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(',')[0] + ', ' + venueVariant.split(', ')[2].split(']')[0] + ', ' + venueVariant.split(' - ')[0] + '" into Class Table')
 
-def updateAirtableStudentInfo(groupedOrderList):
+def updateStudentTable(groupedOrderList):
     print('\nUpdating Student Information on Airtable...')
 
     for venueOrderList in groupedOrderList:
@@ -315,16 +334,7 @@ def updateAirtableStudentInfo(groupedOrderList):
                 thirdOrder = False
 
             name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
-            firstName = name.split()[0]
-
-            if 'Mc' in name and 'Mc' not in firstName:
-                index = name.find('Mc')
-                name = name.replace("Mc", "").title()
-                name = name[:index] + 'Mc' + name[index:]
-            elif 'Mac' in name and 'Mac' not in firstName:
-                index = name.find('Mac')
-                name = name.replace("Mac", "").title()
-                name = name[:index] + 'Mac' + name[index:]
+            name = handleSpecialNameCases(name)
 
             if not airtableStudent.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')'):
                 print('Inserting "' + name + '" into ' + keyList[valList.index(appId)] +' Student Table')
@@ -333,10 +343,10 @@ def updateAirtableStudentInfo(groupedOrderList):
 
             prevOrderID = order['orderNumber']
 
-def updateAirtableStudentRegistrationInfo(groupedOrderList):
+def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionTerm):
     print('\nUpdating Student Registration Information on Airtable...')
 
-    for venueOrderList in groupedOrderList:
+    for venueOrderList in orderList:
         from airtable import airtable
 
         if venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") not in nonTechClubClassList:
@@ -402,39 +412,188 @@ def updateAirtableStudentRegistrationInfo(groupedOrderList):
                 classLevel = classLevel.replace(' to ', '-')
 
             name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
-            firstName = name.split()[0]
+            name = handleSpecialNameCases(name)
 
-            if 'Mc' in name and 'Mc' not in firstName:
-                index = name.find('Mc')
-                name = name.replace("Mc", "").title()
-                name = name[:index] + 'Mc' + name[index:]
-            elif 'Mac' in name and 'Mac' not in firstName:
-                index = name.find('Mac')
-                name = name.replace("Mac", "").title()
-                name = name[:index] + 'Mac' + name[index:]
+            dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
+            venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
+            day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
 
-            if not airtableStudentReg.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + '), "' +
-                                                           order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' +
-                                                           time + ', ' + classLevel + ', ' + term + '"'):
+            if not airtableStudentReg.search('Primary Key', name + ' (' + dateOfBirth + '), "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
+                studentDetailList = []
+                studentDetailList.append(name + ' (' + dateOfBirth + ')')
+                studentDetailList.append(venue)
+                studentDetailList.append(time)
+                studentDetailList.append(day)
+                if studentDetailList not in subscriptionDetails and [term] not in subscriptionTerm:
+                    print('Inserting ' + '"' + name + '", "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '" into Student Registration Table...')
 
-                print('Inserting ' + '"' + name + '", "' + order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' +
-                    time + ', ' + classLevel + ', ' + term + '" into Student Registration Table...')
+                    studentRecord = airtableStudent.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')')
 
-                studentRecord = airtableStudent.search('Primary Key', name + ' (' +order['lineItems']['customizations'][dobIndex]['value'] + ')')
+                    classRecord = airtableClass.search('Class Name', order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' + time
+                                                       + ', ' + classLevel + ', ' + term)
 
-                classRecord = airtableClass.search('Class Name', order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' + time
-                                                   + ', ' + classLevel + ', ' + term)
-
-                airtableStudentReg.insert({'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']], 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
-                                           'Contact Phone No.': order['billingAddress']['phone'],'Contact Email': order['customerEmail'], 'Other Details': order['lineItems']['customizations'][10]['value'], 'Photography Consent': photographyConsent,
-                                           'Returning Student': returningStudent, 'School & Class': order['lineItems']['customizations'][6]['value']})
+                    airtableStudentReg.insert({'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']], 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
+                                               'Contact Phone No.': order['billingAddress']['phone'],'Contact Email': order['customerEmail'], 'Other Details': order['lineItems']['customizations'][10]['value'], 'Photography Consent': photographyConsent,
+                                               'Returning Student': returningStudent, 'School & Class': order['lineItems']['customizations'][6]['value']})
 
             prevOrderID = order['orderNumber']
+
+def updateSubscriptionsTable(orderList):
+    print('\nUpdating Subscription Information on Airtable...')
+
+    for venueOrderList in orderList:
+        from airtable import airtable
+
+        appId = airtableAppIdDict['Subscriptions']
+
+        airtableSubscriptions = airtable.Airtable(appId, 'Subscriptions', airtableApiKey)
+
+        prevOrderID = 0
+        thirdOrder = False
+
+        for order in venueOrderList:
+            if 'Subscription' in order['lineItems']['productName']:
+                if order['orderNumber'] == prevOrderID and (len(order['lineItems']['customizations'][1]['value'].split()) > 1 or len(order['lineItems']['customizations'][2]['value'].split()) > 1):
+                    if thirdOrder:
+                        nameIndex = 2
+                        dobIndex = 5
+                        thirdOrder = False
+                    else:
+                        nameIndex = 1
+                        dobIndex = 4
+                        thirdOrder = True
+                else:
+                    nameIndex = 0
+                    dobIndex = 3
+                    thirdOrder = False
+
+
+                name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
+                name = handleSpecialNameCases(name)
+
+                dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
+
+                time = order['lineItems']['variantOptions'][0]['value'].split(', ')[1].replace(' ', '')
+
+                classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[2].replace(' -', '-')
+
+                if 'Secondary' in classLevel:
+                    classLevel = classLevel.title()
+
+                if 'to' in classLevel:
+                    classLevel = classLevel.replace(' to ', '-')
+
+                day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
+
+                venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
+
+                if ('Autumn 2019' in order['lineItems']['productName'] and 'Spring 2020' in order['lineItems']['productName']) or ('Autumn \'19' in order['lineItems']['productName'] and 'Spring \'20' in order['lineItems']['productName']):
+                    term = 'Autumn 2019 / Spring 2020'
+                elif 'Autumn 2019' in order['lineItems']['productName'] or 'Autumn \'19' in order['lineItems']['productName']:
+                    term = 'Autumn 2019'
+                elif 'Spring 2020' in order['lineItems']['productName'] or 'Spring \'20' in order['lineItems']['productName']:
+                    term = 'Spring 2020'
+
+                if not airtableSubscriptions.search('Primary Key', name + ' (' + dateOfBirth + '), ' + venue + ', ' + time + ', ' + day + ', ' + term):
+                    print('Inserting ' + '"' + name + ' (' + dateOfBirth + '), ' + venue + ', ' + time + ', ' + day + ', ' + term + '" into Subscriptions Table...')
+
+                    airtableSubscriptions.insert({'Name': name,
+                                                  'Date Of Birth': dateOfBirth,
+                                                  'Term': term,
+                                                  'Day of the Week': day,
+                                                  'Time': time,
+                                                  'Age Group': classLevel,
+                                                  'Venue': venue})
+
+def handleSpecialNameCases(name):
+    firstName = name.split()[0]
+
+    if 'Mc' in name and 'Mc' not in firstName:
+        index = name.find('Mc')
+        name = name.replace("Mc", "").title()
+        name = name[:index] + 'Mc' + name[index:]
+    elif 'Mac' in name and 'Mac' not in firstName:
+        index = name.find('Mac')
+        name = name.replace("Mac", "").title()
+        name = name[:index] + 'Mac' + name[index:]
+
+    return name
+
+def AccessGoogleDrive():
+    creds = None
+
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+
+    return build('drive', 'v3', credentials=creds)
+
+def UploadToGoogleDrive(drive):
+    file_metadata = {'name': lastUpdateDateFileName}
+    media = MediaFileUpload(lastUpdateDateFileName,
+                            mimetype='text/plain')
+    drive.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+def EditLastClassListGenerationDateFile(drive):
+    file_metadata = {'name': 'LastClassListUpdateDate'}
+    media = MediaFileUpload(lastUpdateDateFileName,
+                            mimetype='application/vnd.google-apps.document')
+
+    file = drive.files().update(fileId=lastUpdateDateID, body=file_metadata, media_body=media).execute()
+
+def DownloadFromGoogleDrive(drive):
+    request = drive.files().export(fileId=lastUpdateDateID, mimeType='text/plain')
+
+    localFD = io.FileIO(lastUpdateDateFileName, mode='wb')
+
+    mediaRequest = http.MediaIoBaseDownload(localFD, request)
+
+    while True:
+        try:
+            downloadProgress, done = mediaRequest.next_chunk()
+        except errors.HttpError as error:
+            print('An error occurred: %s' % error)
+            return
+        if downloadProgress:
+            print('Download Progress: %d%%' % int(downloadProgress.progress() * 100))
+        if done:
+            print('Download Complete')
+            return
+
+def getSubscriptionDetails():
+    from airtable import airtable
+
+    appId = airtableAppIdDict['Subscriptions']
+
+    airtableSubscriptions = airtable.Airtable(appId, 'Subscriptions', airtableApiKey)
+
+    subscriptions = airtableSubscriptions.get_all()
+
+    subscriptionDetails = [subscription["fields"]["Primary Key"].split(', ')[0:4] for subscription in subscriptions]
+    subscriptionTerm = [subscription["fields"]["Primary Key"].split(', ')[4] for subscription in subscriptions]
+
+    return subscriptionDetails, subscriptionTerm
 
 def main():
     start = time.time()
 
-    allOrdersList, endDate = ExportAllOrders()
+    drive = AccessGoogleDrive()
+
+    allOrdersList, endDate = ExportAllOrders(drive)
 
     if allOrdersList:
         individualOrdersList = ExportIndividualOrders(allOrdersList)
@@ -442,15 +601,19 @@ def main():
         inventoryList = retrieveInventory()
         currentTermVariantList = findCurrentTermInInventory(inventoryList)
         groupedVariantList = splitVariantLists(currentTermVariantList)
-        updateAirtableClassInfo(groupedVariantList)
+        updateClassTable(groupedVariantList)
 
         groupedOrderList = splitVenueLists(individualOrdersList)
 
-        updateAirtableStudentInfo(groupedOrderList)
-        updateAirtableStudentRegistrationInfo(groupedOrderList)
+        updateStudentTable(groupedOrderList)
+        updateSubscriptionsTable(groupedOrderList)
+
+        subscriptionDetails, subscriptionTerm = getSubscriptionDetails()
+        updateStudentRegistrationTable(groupedOrderList, subscriptionDetails, subscriptionTerm)
 
     print('\nAirtable is up to date')
-    WriteLastGenerationDate(endDate)
+
+    WriteLastGenerationDate(endDate, drive)
 
     end = time.time()
 
