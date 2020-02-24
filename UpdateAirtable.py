@@ -1,5 +1,4 @@
 import argparse
-import io
 import os
 import string
 import requests
@@ -7,16 +6,13 @@ import copy
 import time
 import dateutil.parser
 import datetime
-import pickle
-import slack
-from googleapiclient import errors, http
-from googleapiclient.http import MediaFileUpload
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+
 from datetime import timedelta
 from builtins import any as b_any
-from threading import BoundedSemaphore as BoundedSemaphore, Timer
+
+from google_drive.GoogleDrive import GoogleDrive
+from slack.Slack import Slack
+from request_limit.RequestLimit import RequestLimit
 
 parser = argparse.ArgumentParser()
 parser.add_argument('squarespaceOrderApiKey')
@@ -32,47 +28,24 @@ squarespaceInventoryApiURL = 'https://api.squarespace.com/1.0/commerce/inventory
 
 airtableApiKey = args.airtableApiKey
 
-slackClient = slack.WebClient(token=args.slackApiKey)
-
 productNameIgnoreList = ['Custom payment amount']
 airtableAppIdDict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
                      'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk'}
 nonTechClubClassList = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue']
 
-lastUpdateDateFileName = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
+lastUpdateDateFilePath = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
 lastUpdateDateID = '1JqP_9XCoeb8B8dlhyTYcuRRltr24CwSCnXyAfckAoPA'
 
-class RatedSemaphore(BoundedSemaphore):
-    """Limit to 1 request per `period / value` seconds (over long run)."""
-    def __init__(self, value=1, period=1):
-        BoundedSemaphore.__init__(self, value)
-        t = Timer(period, self._add_token_loop,kwargs=dict(time_delta=float(period)/value))
-        t.daemon = True
-        t.start()
-
-    def _add_token_loop(self, time_delta):
-        """Add token every time_delta seconds."""
-        while True:
-            try:
-                BoundedSemaphore.release(self)
-            except ValueError: # ignore if already max possible value
-                pass
-            time.sleep(time_delta)
-
-    def release(self):
-        pass # do nothing (only time-based release() is allowed)
-
-def WriteLastGenerationDate(endDate, drive):
-    with open(lastUpdateDateFileName, 'w') as file:
+def WriteLastGenerationDate(endDate, googleDrive):
+    with open(lastUpdateDateFilePath, 'w') as file:
         file.write(endDate)
 
-    EditLastClassListGenerationDateFile(drive)
+    googleDrive.editFile(lastUpdateDateFilePath, lastUpdateDateID, "application/vnd.google-apps.document")
 
-def ReadLastGenerationDate(drive):
+def ReadLastGenerationDate(googleDrive):
+    googleDrive.downloadFile(lastUpdateDateID, "text/plain", lastUpdateDateFilePath)
 
-    DownloadFromGoogleDrive(drive)
-
-    with open(lastUpdateDateFileName) as file:
+    with open(lastUpdateDateFilePath) as file:
         lastEndDate = dateutil.parser.parse(''.join([x for x in file.readlines()[0] if x in string.printable]))
 
     startDate = lastEndDate + timedelta(microseconds=1)
@@ -80,20 +53,20 @@ def ReadLastGenerationDate(drive):
     return startDate.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 def getRequestWithRateLimit(apiURL, headers=None, params=None):
-    rateLimit = RatedSemaphore(120, 60)
+    requestLimit = RequestLimit(120, 60)
 
     try:
-        with rateLimit, requests.get(apiURL, headers=headers, params=params) as response:
+        with requestLimit, requests.get(apiURL, headers=headers, params=params) as response:
             return response.json(), None
     except Exception as e:
         print(e)
         return None, e
 
-def ExportAllOrders(drive):
+def ExportAllOrders(googleDrive):
     pageNumber = 1
     orderList = []
 
-    startDate = ReadLastGenerationDate(drive)
+    startDate = ReadLastGenerationDate(googleDrive)
     endDate = datetime.datetime.now()
 
     if time.daylight and time.localtime().tm_isdst > 0:
@@ -521,66 +494,6 @@ def handleSpecialNameCases(name):
 
     return name
 
-def AccessGoogleDrive():
-    creds = None
-
-    SCOPES = ['https://www.googleapis.com/auth/drive']
-
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-
-    return build('drive', 'v3', credentials=creds)
-
-def UploadToGoogleDrive(drive):
-    file_metadata = {'name': lastUpdateDateFileName}
-    media = MediaFileUpload(lastUpdateDateFileName,
-                            mimetype='text/plain')
-    drive.files().create(body=file_metadata, media_body=media, fields='id').execute()
-
-def EditLastClassListGenerationDateFile(drive):
-    file_metadata = {'name': 'LastClassListUpdateDate'}
-    media = MediaFileUpload(lastUpdateDateFileName,
-                            mimetype='application/vnd.google-apps.document')
-
-    file = drive.files().update(fileId=lastUpdateDateID, body=file_metadata, media_body=media).execute()
-
-def DownloadFromGoogleDrive(drive):
-    request = drive.files().export(fileId=lastUpdateDateID, mimeType='text/plain')
-
-    localFD = io.FileIO(lastUpdateDateFileName, mode='wb')
-
-    mediaRequest = http.MediaIoBaseDownload(localFD, request)
-
-    while True:
-        try:
-            downloadProgress, done = mediaRequest.next_chunk()
-        except errors.HttpError as error:
-            print('An error occurred: %s' % error)
-            return
-        if downloadProgress:
-            print('Download Progress: %d%%' % int(downloadProgress.progress() * 100))
-        if done:
-            print('Download Complete')
-            return
-
-def sendSlackMessage(channel, message):
-    print('\nSending slack message: ' + message)
-
-    response = slackClient.chat_postMessage(channel=channel,text=message)
-
 def getSubscriptionDetails():
     from airtable import airtable
 
@@ -598,9 +511,9 @@ def getSubscriptionDetails():
 def main():
     start = time.time()
 
-    drive = AccessGoogleDrive()
+    googleDrive = GoogleDrive()
 
-    allOrdersList, endDate = ExportAllOrders(drive)
+    allOrdersList, endDate = ExportAllOrders(googleDrive)
 
     if allOrdersList:
         individualOrdersList = ExportIndividualOrders(allOrdersList)
@@ -620,13 +533,14 @@ def main():
 
     print('\nAirtable is up to date')
 
-    WriteLastGenerationDate(endDate, drive)
+    WriteLastGenerationDate(endDate, googleDrive)
 
     endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
-    sendSlackMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
+
+    slack = Slack()
+    slack.sendMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
 
     end = time.time()
-
     print(str(round(end - start, 2)) + ' secs')
 
 if __name__ == '__main__':
