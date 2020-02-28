@@ -11,7 +11,7 @@ from datetime import timedelta
 from builtins import any as b_any
 
 from google_drive.GoogleDrive import GoogleDrive
-from slack.Slack import Slack
+from slack_api.Slack import Slack
 from request_limit.RequestLimit import RequestLimit
 
 parser = argparse.ArgumentParser()
@@ -203,7 +203,7 @@ def findCurrentTermInInventory(inventoryList):
     currentTermVariantList = []
 
     for i in range(len(inventoryList)):
-        if 'Spring' in inventoryList[i]['descriptor'].split('[')[0] and ('\'20' in inventoryList[i]['descriptor'].split('[')[0] or '2020' in inventoryList[i]['descriptor'].split('[')[0]):
+        if ('Spring' in inventoryList[i]['descriptor'].split('[')[0] or 'Summer' in inventoryList[i]['descriptor'].split('[')[0]) and ('\'20' in inventoryList[i]['descriptor'].split('[')[0] or '2020' in inventoryList[i]['descriptor'].split('[')[0]):
             currentTermVariant = inventoryList[i]['descriptor']
 
             if '\'20' in currentTermVariant:
@@ -537,7 +537,7 @@ def main():
 
     endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
 
-    slack = Slack()
+    slack = Slack(args.slackApiKey)
     slack.sendMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
 
     end = time.time()

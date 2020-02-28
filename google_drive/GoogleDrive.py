@@ -34,30 +34,30 @@ class GoogleDrive:
 
         return build("drive", "v3", credentials=creds)
 
-    def downloadFile(self, fileId, mimeType,filePath):
-        request = self.__access.files().export(fileId=fileId, mimeType=mimeType)
-        localFD = io.FileIO(filePath, mode="wb")
-        mediaRequest = http.MediaIoBaseDownload(localFD, request)
+    def download_file(self, file_id, mime_type,file_path):
+        request = self.__access.files().export(fileId=file_id, mimeType=mime_type)
+        local_fd = io.FileIO(file_path, mode="wb")
+        media_request = http.MediaIoBaseDownload(local_fd, request)
 
         while True:
             try:
-                downloadProgress, done = mediaRequest.next_chunk()
+                download_progress, done = media_request.next_chunk()
             except errors.HttpError as error:
                 print("An error occurred: %s" % error)
                 return
-            if downloadProgress:
-                print("Download Progress: %d%%" % int(downloadProgress.progress() * 100))
+            if download_progress:
+                print("Download Progress: %d%%" % int(download_progress.progress() * 100))
             if done:
                 print("Download Complete")
                 return
 
-    def uploadFile(self, filePath, mimeType):
-        file_metadata = {"name": filePath}
-        media = MediaFileUpload(filePath,mimetype=mimeType)
+    def upload_file(self, file_path, mime_type):
+        file_metadata = {"name": file_path}
+        media = MediaFileUpload(file_path,mimetype=mime_type)
         self.__access.files().create(body=file_metadata, media_body=media, fields="id").execute()
 
-    def editFile(self, filePath, fileId, mimeType):
-        file_metadata = {"name": os.path.basename(filePath).split(".")[0]}
-        media = MediaFileUpload(filePath, mimetype=mimeType)
+    def edit_file(self, file_path, file_id, mime_type):
+        file_metadata = {"name": os.path.basename(file_path).split(".")[0]}
+        media = MediaFileUpload(file_path, mimetype=mime_type)
 
-        return self.__access.files().update(fileId=fileId, body=file_metadata, media_body=media).execute()
+        return self.__access.files().update(fileId=file_id, body=file_metadata, media_body=media).execute()

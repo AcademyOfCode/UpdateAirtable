@@ -15,6 +15,3 @@ class RequestLimit(BoundedSemaphore):
             except ValueError:
                 pass
             time.sleep(time_delta)
-
-    def __release(self):
-        pass
