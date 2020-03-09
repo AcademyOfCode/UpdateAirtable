@@ -15,6 +15,7 @@ from google_drive.GoogleDrive import GoogleDrive
 from order.OrderPage import OrderPage
 from order.OrderPages import OrderPages
 from request.RequestLimit import RequestLimit
+from slack_api.Slack import Slack
 from squarespace.Squarespace import Squarespace
 from squarespace.inventory.InventoryRetriever import InventoryRetriever
 
@@ -576,12 +577,10 @@ def main():
 
     print('\nAirtable is up to date')
 
-    # write_end_date_to_file(endDate, googleDrive)
-    #
-    # endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
-    #
-    # slack = Slack(args.slackApiKey)
-    # slack.sendMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
+    write_end_date_to_file(get_end_date(), google_drive)
+
+    slack = Slack(args.slackApiKey)
+    slack.sendMessage('#airtable-last-updated', 'Last Update: ' + get_end_date())
 
     end = time.time()
     print(str(round(end - start, 2)) + ' secs')
