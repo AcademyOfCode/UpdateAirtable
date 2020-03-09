@@ -10,9 +10,13 @@ import datetime
 from datetime import timedelta
 from builtins import any as b_any
 
+from airtable_wrapper.Airtable import Airtable
 from google_drive.GoogleDrive import GoogleDrive
-from slack_api.Slack import Slack
-from request_limit.RequestLimit import RequestLimit
+from order.OrderPage import OrderPage
+from order.OrderPages import OrderPages
+from request.RequestLimit import RequestLimit
+from squarespace.Squarespace import Squarespace
+from squarespace.inventory.InventoryRetriever import InventoryRetriever
 
 parser = argparse.ArgumentParser()
 parser.add_argument('squarespaceOrderApiKey')
@@ -28,29 +32,39 @@ squarespaceInventoryApiURL = 'https://api.squarespace.com/1.0/commerce/inventory
 
 airtableApiKey = args.airtableApiKey
 
-productNameIgnoreList = ['Custom payment amount']
-airtableAppIdDict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
+product_names_to_ignore = ['Custom payment amount']
+airtable_base_key_dict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
                      'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk', 'Summer Camps 2020': 'appgyHx1HXJGzLlfk'}
 nonTechClubBases = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue', 'Summer Camps 2020']
 
 lastUpdateDateFilePath = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
 lastUpdateDateID = '1JqP_9XCoeb8B8dlhyTYcuRRltr24CwSCnXyAfckAoPA'
 
-def WriteLastGenerationDate(endDate, googleDrive):
+DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
+
+def write_end_date_to_file(end_date, google_drive):
     with open(lastUpdateDateFilePath, 'w') as file:
-        file.write(endDate)
+        file.write(end_date)
 
-    googleDrive.editFile(lastUpdateDateFilePath, lastUpdateDateID, "application/vnd.google-apps.document")
+    google_drive.editFile(lastUpdateDateFilePath, lastUpdateDateID, "application/vnd.google-apps.document")
 
-def ReadLastGenerationDate(googleDrive):
-    googleDrive.downloadFile(lastUpdateDateID, "text/plain", lastUpdateDateFilePath)
+def get_start_date(google_drive):
+    google_drive.download_file(lastUpdateDateID, "text/plain", lastUpdateDateFilePath)
 
     with open(lastUpdateDateFilePath) as file:
         lastEndDate = dateutil.parser.parse(''.join([x for x in file.readlines()[0] if x in string.printable]))
 
     startDate = lastEndDate + timedelta(microseconds=1)
 
-    return startDate.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    return startDate.strftime(DATE_FORMAT)
+
+def get_end_date():
+    endDate = datetime.datetime.now()
+
+    if time.daylight and time.localtime().tm_isdst > 0:
+        endDate -= timedelta(hours=1)
+
+    return endDate.strftime(DATE_FORMAT)
 
 def getRequestWithRateLimit(apiURL, headers=None, params=None):
     requestLimit = RequestLimit(120, 60)
@@ -62,11 +76,11 @@ def getRequestWithRateLimit(apiURL, headers=None, params=None):
         print(e)
         return None, e
 
-def ExportAllOrders(googleDrive):
+def ExportAllOrders(drive):
     pageNumber = 1
     orderList = []
 
-    startDate = ReadLastGenerationDate(googleDrive)
+    startDate = get_start_date(drive)
     endDate = datetime.datetime.now()
 
     if time.daylight and time.localtime().tm_isdst > 0:
@@ -92,7 +106,7 @@ def ExportAllOrders(googleDrive):
 
     for index in range(len(responseJSON['result'])):
         skipOrder = False
-        for productName in productNameIgnoreList:
+        for productName in product_names_to_ignore:
             if productName in responseJSON['result'][index]['lineItems'][0]['productName'] or responseJSON['result'][index]['lineItems'][0]['productName'] in productName:
                 skipOrder = True
                 break
@@ -112,7 +126,7 @@ def ExportAllOrders(googleDrive):
 
         for index in range(len(responseJSON['result'])):
             skipOrder = False
-            for productName in productNameIgnoreList:
+            for productName in product_names_to_ignore:
                 if productName in responseJSON['result'][index]['lineItems'][0]['productName']:
                     skipOrder = True
                     break
@@ -123,28 +137,10 @@ def ExportAllOrders(googleDrive):
 
     return orderList, endDate
 
-def ExportIndividualOrders(allOrdersList):
-    orderCount = 1
-    responseList = []
+def organize_orders(allOrdersList):
     seperatedNameOrderList = []
 
-    headers = {
-        'Authorization': 'Bearer ' + squarespaceOrderApiKey,
-        'User-Agent': 	'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36'
-    }
-
-    print('Exporting Individual Orders...')
-
     for order in allOrdersList:
-        orderID = order['id']
-
-        responseJSON, error = getRequestWithRateLimit(squarespaceOrderApiURL + '/' + orderID, headers)
-
-        responseList.append(responseJSON)
-        print('Order ' + str(orderCount) + ' Completed.')
-        orderCount += 1
-
-    for order in responseList:
         lineItemNumber = 0
         for lineItem in order['lineItems']:
             orderCopy = copy.deepcopy(order)
@@ -167,9 +163,9 @@ def ExportIndividualOrders(allOrdersList):
 
     return seperatedNameOrderList
 
-def retrieveInventory():
-    pageNumber = 1
-    inventoryList = []
+def get_inventory():
+    page_number = 1
+    sign_up_class_list = []
 
     headers = {
         'Authorization': 'Bearer ' + squarespaceInventoryApiKey,
@@ -179,12 +175,12 @@ def retrieveInventory():
     responseJSON, error = getRequestWithRateLimit(squarespaceInventoryApiURL, headers)
 
     for index in range(len(responseJSON['inventory'])):
-        inventoryList.append(responseJSON['inventory'][index])
+        sign_up_class_list.append(responseJSON['inventory'][index])
 
-    print('Page ' + str(pageNumber) + ' Inventory Request Completed.')
+    print('Page ' + str(page_number) + ' Inventory Request Completed.')
 
     while responseJSON['pagination']['hasNextPage'] == True:
-        pageNumber += 1
+        page_number += 1
 
         params = [
             ('cursor', responseJSON['pagination']['nextPageCursor'])
@@ -193,11 +189,11 @@ def retrieveInventory():
         responseJSON, error = getRequestWithRateLimit(squarespaceInventoryApiURL, headers, params)
 
         for index in range(len(responseJSON['inventory'])):
-            inventoryList.append(responseJSON['inventory'][index])
+            sign_up_class_list.append(responseJSON['inventory'][index])
 
-        print('Page ' + str(pageNumber) + ' Inventory Request Completed.')
+        print('Page ' + str(page_number) + ' Inventory Request Completed.')
 
-    return inventoryList
+    return sign_up_class_list
 
 def findCurrentTermInInventory(inventoryList):
     currentTermVariantList = []
@@ -226,9 +222,8 @@ def splitVariantLists(currentTermVariantList):
     for elem in currentTermVariantList:
         key = elem.split(' [')[0]
         grouped.setdefault(key, []).append(elem)
-    grouped = list(grouped.values())
 
-    return grouped
+    return list(grouped.values())
 
 def splitVenueLists(ordersList):
     grouped = {}
@@ -238,64 +233,80 @@ def splitVenueLists(ordersList):
         else:
             key = elem['lineItems']['productName'].split('- ')[1].split(',')[0]
         grouped.setdefault(key, []).append(elem)
-    grouped = list(grouped.values())
 
-    return grouped
+    return list(grouped.values())
 
 def updateClassTable(currentTermVariantsList):
     print('\nUpdating Class Information on Airtable...')
 
     for venueVariants in currentTermVariantsList:
-        from airtable import airtable
 
         if 'Summer' in venueVariants[0].split(' - ')[0]:
-            appId = airtableAppIdDict['Summer Camps 2020']
-            airtableVenue = airtable.Airtable(appId, 'Venue', airtableApiKey)
+            venue_name = 'Summer Camps 2020'
+            airtable_venue_table = Airtable(base_key, 'Venue', airtableApiKey)
         elif venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") not in nonTechClubBases:
-            appId = airtableAppIdDict['Tech Clubs']
-            airtableVenue = airtable.Airtable(appId, 'Venue', airtableApiKey)
+            venue_name = 'Tech Clubs'
+            airtable_venue_table = Airtable(base_key, 'Venue', airtableApiKey)
         else:
-            appId = airtableAppIdDict[venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")]
+            venue_name = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
+        
+        base_key = airtable_base_key_dict[venue_name]
 
-        airtableClass = airtable.Airtable(appId, 'Class', airtableApiKey)
+        airtable_class_table = Airtable(base_key, 'Class', airtableApiKey)
 
         for venueVariant in venueVariants:
-            if appId == airtableAppIdDict['Tech Clubs'] or appId == airtableAppIdDict['Summer Camps 2020']:
-                if not airtableVenue.search('Name',venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")):
-                    airtableVenue.insert({'Name': venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")})
+            if base_key == airtable_base_key_dict['Tech Clubs'] or base_key == airtable_base_key_dict['Summer Camps 2020']:
+                field_name = 'Name'
+                field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
+                if not airtable_venue_table.search(field_name, field_value):
+                    airtable_venue_table.insert({field_name: field_value})
 
             if 'Summer' in venueVariant:
-                if not airtableClass.search('Class Name',  venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(' (')[0] + ', ' + venueVariant.split(', ')[1].split('(')[1].split(')')[0] + ', ' + venueVariant.split(' - ')[0]):
-                    venue = airtableVenue.search('Name', venueVariants[0].split('- ')[1].split(' [')[0].replace("'", ""))
-                    airtableClass.insert({'Term': venueVariant.split(' - ')[0],
-                                          'Venue': [venue[0]['id']],
-                                          'Week': venueVariant.split('[')[1].split(',')[0],
-                                          'Time': venueVariant.split(', ')[1].split(' (')[0],
-                                          'Age Group': venueVariant.split(', ')[1].split('(')[1].split(')')[0]})
+                field_name = "Class Name"
+                field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' \
+                              + venueVariant.split('[')[1].split(',')[0] + ', ' \
+                              + venueVariant.split(', ')[1].split(' (')[0] + ', ' \
+                              + venueVariant.split(', ')[1].split('(')[1].split(')')[0] + ', ' \
+                              + venueVariant.split(' - ')[0]
+                if not airtable_class_table.search(field_name, field_value):
+                    field_name = 'Name'
+                    field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
+                    venue = airtable_venue_table.search(field_name, field_value)
+                    
+                    fields = {'Term': venueVariant.split(' - ')[0],
+                              'Venue': [venue[0]['id']],
+                              'Week': venueVariant.split('[')[1].split(',')[0],
+                              'Time': venueVariant.split(', ')[1].split(' (')[0],
+                              'Age Group': venueVariant.split(', ')[1].split('(')[1].split(')')[0]
+                              }
+                    airtable_class_table.insert(fields)
                     print('Inserting "' + venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(' (')[0] + ', ' + venueVariant.split(', ')[1].split('(')[1].split(')')[0] + ', ' + venueVariant.split(' - ')[0] + '" into Class Table')
             else:
-                if not airtableClass.search('Class Name',
-                                            venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' +
-                                            venueVariant.split('[')[1].split(',')[0] + ', ' +
-                                            venueVariant.split(', ')[1].split(',')[0] + ', ' +
-                                            venueVariant.split(', ')[2].split(']')[0] + ', ' +
-                                            venueVariant.split(' - ')[0]):
-                    if appId == airtableAppIdDict['Tech Clubs']:
-                        venue = airtableVenue.search('Name',
-                                                     venueVariants[0].split('- ')[1].split(' [')[0].replace("'",
-                                                                                                            ""))
-                        airtableClass.insert({'Term': venueVariant.split(' - ')[0],
-                                              'Venue': [venue[0]['id']],
-                                              'Day of the Week': venueVariant.split('[')[1].split(',')[0],
-                                              'Time': venueVariant.split(', ')[1].split(',')[0],
-                                              'Age Group': venueVariant.split(', ')[2].split(']')[0]})
+                field_name = "Class Name"
+                field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' \
+                              + venueVariant.split('[')[1].split(',')[0] + ', ' \
+                              + venueVariant.split(', ')[1].split(',')[0] + ', ' \
+                              + venueVariant.split(', ')[2].split(']')[0] + ', ' \
+                              + venueVariant.split(' - ')[0]
+                if not airtable_class_table.search(field_name, field_value):
+                    if base_key == airtable_base_key_dict['Tech Clubs']:
+                        venue = airtable_venue_table.search('Name',venueVariants[0].split('- ')[1].split(' [')[0].replace("'",""))
+                        
+                        fields = {'Term': venueVariant.split(' - ')[0],
+                                  'Venue': [venue[0]['id']],
+                                  'Day of the Week': venueVariant.split('[')[1].split(',')[0],
+                                  'Time': venueVariant.split(', ')[1].split(',')[0],
+                                  'Age Group': venueVariant.split(', ')[2].split(']')[0]
+                                  }
                     else:
-                        airtableClass.insert({'Term': venueVariant.split(' - ')[0],
-                                              'Venue': venueVariants[0].split('- ')[1].split(' [')[0].replace("'",
-                                                                                                              ""),
-                                              'Day of the Week': venueVariant.split('[')[1].split(',')[0],
-                                              'Time': venueVariant.split(', ')[1].split(',')[0],
-                                              'Age Group': venueVariant.split(', ')[2].split(']')[0]})
+                        fields = {'Term': venueVariant.split(' - ')[0],
+                                  'Venue': venueVariants[0].split('- ')[1].split(' [')[0].replace("'",""),
+                                  'Day of the Week': venueVariant.split('[')[1].split(',')[0],
+                                  'Time': venueVariant.split(', ')[1].split(',')[0],
+                                  'Age Group': venueVariant.split(', ')[2].split(']')[0]
+                                  }
+                    
+                    airtable_class_table.insert(fields)
 
                     print('Inserting "' + venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(',')[0] + ', ' + venueVariant.split(', ')[2].split(']')[0] + ', ' + venueVariant.split(' - ')[0] + '" into Class Table')
 
@@ -303,24 +314,23 @@ def updateStudentTable(groupedOrderList):
     print('\nUpdating Student Information on Airtable...')
 
     for venueOrderList in groupedOrderList:
-        from airtable import airtable
-
         if 'Summer' in venueOrderList[0]['lineItems']['productName']:
-            appId = airtableAppIdDict['Summer Camps 2020']
+            venue_name = 'Summer Camps 2020'
         elif venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") not in nonTechClubBases:
-            appId = airtableAppIdDict['Tech Clubs']
+            venue_name = 'Tech Clubs'
         else:
-            appId = airtableAppIdDict[venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")]
+            venue_name = venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
+        
+        base_key = airtable_base_key_dict[venue_name]
 
-        airtableStudent = airtable.Airtable(appId, 'Student', airtableApiKey)
+        airtable_student_table = Airtable(base_key, 'Student', airtableApiKey)
 
         prevOrderID = 0
         thirdOrder = False
-        keyList = list(airtableAppIdDict.keys())
-        valList = list(airtableAppIdDict.values())
+        keyList = list(airtable_base_key_dict.keys())
+        valList = list(airtable_base_key_dict.values())
 
         for order in venueOrderList:
-
             if order['orderNumber'] == prevOrderID and (len(order['lineItems']['customizations'][1]['value'].split()) > 1 or len(order['lineItems']['customizations'][2]['value'].split()) > 1):
                 if thirdOrder:
                     nameIndex = 2
@@ -337,11 +347,17 @@ def updateStudentTable(groupedOrderList):
 
             name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
             name = handleSpecialNameCases(name)
+            dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
 
-            if not airtableStudent.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')'):
-                print('Inserting "' + name + '" into ' + keyList[valList.index(appId)] + ' Student Table')
+            field_name = 'Primary Key' 
+            field_value = name + ' (' + dateOfBirth + ')'
+            if not airtable_student_table.search(field_name, field_value):
+                print('Inserting "' + name + '" into ' + keyList[valList.index(base_key)] + ' Student Table')
 
-                airtableStudent.insert({'Name': name,'Date of Birth': order['lineItems']['customizations'][dobIndex]['value']})
+                fields = {'Name': name,
+                          'Date of Birth': dateOfBirth
+                          }
+                airtable_student_table.insert(fields)
 
             prevOrderID = order['orderNumber']
 
@@ -351,18 +367,17 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
     addAnOrder = False
 
     for venueOrderList in orderList:
-        from airtable import airtable
-
         if 'Summer' in venueOrderList[0]['lineItems']['productName']:
-            appId = airtableAppIdDict['Summer Camps 2020']
+            venue_name = 'Summer Camps 2020'
         elif venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") not in nonTechClubBases:
-            appId = airtableAppIdDict['Tech Clubs']
+            venue_name = 'Tech Clubs'
         else:
-            appId = airtableAppIdDict[venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")]
+            venue_name = venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
+        base_key = airtable_base_key_dict[venue_name]
 
-        airtableStudentReg = airtable.Airtable(appId, 'Student Registration', airtableApiKey)
-        airtableStudent = airtable.Airtable(appId, 'Student', airtableApiKey)
-        airtableClass = airtable.Airtable(appId, 'Class', airtableApiKey)
+        airtable_student_registration_table = Airtable(base_key, 'Student Registration', airtableApiKey)
+        airtable_student_table = Airtable(base_key, 'Student', airtableApiKey)
+        airtable_class_table = Airtable(base_key, 'Class', airtableApiKey)
 
         prevOrderID = 0
         thirdOrder = False
@@ -424,7 +439,7 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
             venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
             day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
 
-            if not airtableStudentReg.search('Primary Key', name + ' (' + dateOfBirth + '), "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
+            if not airtable_student_registration_table.search('Primary Key', name + ' (' + dateOfBirth + '), "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
                 studentDetailList = []
                 studentDetailList.append(name + ' (' + dateOfBirth + ')')
                 studentDetailList.append(venue)
@@ -435,11 +450,11 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
 
                     addAnOrder = True
 
-                    studentRecord = airtableStudent.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')')
+                    studentRecord = airtable_student_table.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')')
 
-                    classRecord = airtableClass.search('Class Name', venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term)
+                    classRecord = airtable_class_table.search('Class Name', venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term)
 
-                    airtableStudentReg.insert({'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']], 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
+                    airtable_student_registration_table.insert({'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']], 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
                                                'Contact Phone No.': order['billingAddress']['phone'],'Contact Email': order['customerEmail'], 'Other Details': order['lineItems']['customizations'][10]['value'], 'Photography Consent': photographyConsent,
                                                'Returning Student': returningStudent, 'School & Class': order['lineItems']['customizations'][6]['value']})
 
@@ -453,7 +468,7 @@ def updateSubscriptionsTable(orderList):
     for venueOrderList in orderList:
         from airtable import airtable
 
-        appId = airtableAppIdDict['Subscriptions']
+        appId = airtable_base_key_dict['Subscriptions']
 
         airtableSubscriptions = airtable.Airtable(appId, 'Subscriptions', airtableApiKey)
 
@@ -528,13 +543,10 @@ def handleSpecialNameCases(name):
     return name
 
 def getSubscriptionDetails():
-    from airtable import airtable
+    base_key = airtable_base_key_dict['Subscriptions']
+    airtable_subscriptions_table = Airtable(base_key, 'Subscriptions', airtableApiKey)
 
-    appId = airtableAppIdDict['Subscriptions']
-
-    airtableSubscriptions = airtable.Airtable(appId, 'Subscriptions', airtableApiKey)
-
-    subscriptions = airtableSubscriptions.get_all()
+    subscriptions = airtable_subscriptions_table.get_all()
 
     subscriptionDetails = [subscription["fields"]["Primary Key"].split(', ')[0:4] for subscription in subscriptions]
     subscriptionTerm = [subscription["fields"]["Primary Key"].split(', ')[4] for subscription in subscriptions]
@@ -544,19 +556,17 @@ def getSubscriptionDetails():
 def main():
     start = time.time()
 
-    googleDrive = GoogleDrive()
+    google_drive = GoogleDrive()
 
-    allOrdersList, endDate = ExportAllOrders(googleDrive)
+    squarespace = Squarespace(squarespaceOrderApiKey, squarespaceInventoryApiKey)
+    orders = squarespace.get_orders_by_date(get_start_date(google_drive), get_end_date())
 
-    if allOrdersList:
-        individualOrdersList = ExportIndividualOrders(allOrdersList)
+    if orders:
+        inventory_retriever = InventoryRetriever()
+        inventory = inventory_retriever.get_inventory()
+        updateClassTable(inventory)
 
-        inventoryList = retrieveInventory()
-        currentTermVariantList = findCurrentTermInInventory(inventoryList)
-        groupedVariantList = splitVariantLists(currentTermVariantList)
-        updateClassTable(groupedVariantList)
-
-        groupedOrderList = splitVenueLists(individualOrdersList)
+        groupedOrderList = splitVenueLists(orders)
 
         updateStudentTable(groupedOrderList)
 
@@ -566,12 +576,12 @@ def main():
 
     print('\nAirtable is up to date')
 
-    WriteLastGenerationDate(endDate, googleDrive)
-
-    endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
-
-    slack = Slack(args.slackApiKey)
-    slack.sendMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
+    # write_end_date_to_file(endDate, googleDrive)
+    #
+    # endDate = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
+    #
+    # slack = Slack(args.slackApiKey)
+    # slack.sendMessage('#airtable-last-updated', 'Last Update: ' + endDate.strftime("%m/%d/%Y, %H:%M:%S"))
 
     end = time.time()
     print(str(round(end - start, 2)) + ' secs')
