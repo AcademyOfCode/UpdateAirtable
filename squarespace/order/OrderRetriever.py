@@ -28,6 +28,7 @@ class OrderRetriever:
         response, error = request.get_request()
 
         if not response['result']:
+            print("Orders between " + start_date + " and " + end_date + " not found")
             return None
 
         # orderPages = OrderPages.OrderPages()
@@ -83,5 +84,16 @@ class OrderRetriever:
 
         return order_organizer.organize()
 
-    def get_orders_id(self):
-        pass
+    def get_orders_id(self, order_id):
+        request = Request.Request(ORDER_API_URL + '/' + order_id, self.__request_value, self.__request_period, self.__headers)
+        response, error = request.get_request()
+
+        if not response['result']:
+            print("Order ID " + order_id + " not found")
+            return None
+
+        print('Exporting Order ' + order_id)
+
+        order_organizer = OrderOrganizer.OrderOrganizer(response['result'])
+
+        return order_organizer.organize()

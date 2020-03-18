@@ -1,5 +1,3 @@
-from airtable import airtable
-
 class Airtable:
     def __init__(self, base_key, table_name, api_key):
         self.__table = Airtable(base_key, table_name, api_key)
@@ -11,4 +9,4 @@ class Airtable:
         self.__table.insert(fields)
 
     def get_all(self):
-        self.__table.get_all()
+        return self.__table.get_all()

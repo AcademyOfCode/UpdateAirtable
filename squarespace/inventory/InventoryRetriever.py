@@ -40,7 +40,7 @@ class InventoryRetriever:
 
             print('Page ' + str(page_number) + ' Inventory Request Completed.')
 
-        return self.____filter_inventory(inventory)
+        return self.__filter_inventory(inventory)
 
     def __filter_inventory(self, inventory):
         filtered_inventory = []
@@ -53,27 +53,27 @@ class InventoryRetriever:
                 current_term_variant = inventory[i]['descriptor']
 
                 if '\'20' in current_term_variant:
-                    currentTermVariant = currentTermVariant.replace('\'20', '2020')
+                    current_term_variant = current_term_variant.replace('\'20', '2020')
 
-                if ', ' in currentTermVariant.split('- ')[1].split('[')[0]:
-                    currentTermVariant = currentTermVariant[0:currentTermVariant.index(',')] + ' ' + currentTermVariant[
-                                                                                                     currentTermVariant.index(
+                if ', ' in current_term_variant.split('- ')[1].split('[')[0]:
+                    current_term_variant = current_term_variant[0:current_term_variant.index(',')] + ' ' + current_term_variant[
+                                                                                                           current_term_variant.index(
                                                                                                          '['):len(
-                                                                                                         currentTermVariant)]
+                                                                                                               current_term_variant)]
 
-                if len(currentTermVariant.split(',')) > 3:
-                    if not any(currentTermVariant[0:currentTermVariant.rfind(',')] in x for x in filtered_inventory):
-                        filtered_inventory.append(currentTermVariant)
+                if len(current_term_variant.split(',')) > 3:
+                    if not any(current_term_variant[0:current_term_variant.rfind(',')] in x for x in filtered_inventory):
+                        filtered_inventory.append(current_term_variant)
                 else:
-                    if not any(currentTermVariant in x for x in filtered_inventory):
-                        filtered_inventory.append(currentTermVariant)
+                    if not any(current_term_variant in x for x in filtered_inventory):
+                        filtered_inventory.append(current_term_variant)
 
-        return self.____split_inventory(filtered_inventory)
+        return self.__split_inventory(filtered_inventory)
 
     def __split_inventory(self, inventory):
         grouped = {}
         for item in inventory:
-            key = elitemem.split(' [')[0]
+            key = item.split(' [')[0]
             grouped.setdefault(key, []).append(item)
 
         return list(grouped.values())

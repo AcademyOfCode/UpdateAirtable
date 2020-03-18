@@ -14,6 +14,7 @@ CONTACT_EMAIL = "Contact Email"
 RETURNING = "Returning Student"
 PHOTOGRAPHY_CONSENT = "Photography Consent"
 OTHER_DETAILS = "Other Details"
+IS_SUBSCRIPTION = "Subscription"
 
 class OrderBuilder:
     def __init__(self, order_json_object, multiple_order_index):
@@ -40,6 +41,7 @@ class OrderBuilder:
         else:
             self.__photography_consent = "Yes"
         self.__other_details = order_json_object["lineItems"]["customizations"][10]["value"]
+        self.__is_subscription = True if "Subscription" in order_json_object["lineItems"]["productName"] else False
 
     def build(self):
         self.__order[FIRST_NAME] = self.__first_name
@@ -58,6 +60,7 @@ class OrderBuilder:
         self.__order[RETURNING]= self.__returning
         self.__order[PHOTOGRAPHY_CONSENT] = self.__photography_consent
         self.__order[OTHER_DETAILS] = self.__other_details
+        self.__order[IS_SUBSCRIPTION] = self.__is_subscription
         return self.__order
 
     def get_first_name(self):
