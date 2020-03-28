@@ -36,8 +36,8 @@ slackClient = slack.WebClient(token=args.slackApiKey)
 
 productNameIgnoreList = ['Custom payment amount', 'Online mini-camps']
 airtableAppIdDict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
-                     'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk', 'Summer Camps 2020': 'appgyHx1HXJGzLlfk'}
-nonTechClubBases = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue', 'Summer Camps 2020']
+                     'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Virtual Venue Mini-Camps': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk', 'Summer Camps 2020': 'appgyHx1HXJGzLlfk'}
+nonTechClubBases = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue', 'Virtual Venue Mini-Camps', 'Summer Camps 2020']
 
 lastUpdateDateFileName = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
 lastUpdateDateID = '1JqP_9XCoeb8B8dlhyTYcuRRltr24CwSCnXyAfckAoPA'
@@ -451,6 +451,15 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
             venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
             day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
 
+            if 'Virtual Venue Mini-Camps' in order['lineItems']['productName']:
+                day = 'All Week'
+                time = order['lineItems']['variantOptions'][0]['value'].split(', ')[0]
+                if '11:00-12:00' in time:
+                    time = '12:00-13:00'
+                classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[1]
+                if 'Secondary School Students' in classLevel:
+                    classLevel = 'Secondary School'
+
             if not airtableStudentReg.search('Primary Key', name + ' (' + dateOfBirth + '), "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
                 studentDetailList = []
                 studentDetailList.append(name + ' (' + dateOfBirth + ')')
@@ -636,13 +645,12 @@ def main():
     allOrdersList, endDate = ExportAllOrders(drive)
 
     if allOrdersList:
-        individualOrdersList = ExportIndividualOrders(allOrdersList)
-
         inventoryList = retrieveInventory()
         currentTermVariantList = findCurrentTermInInventory(inventoryList)
         groupedVariantList = splitVariantLists(currentTermVariantList)
         updateClassTable(groupedVariantList)
 
+        individualOrdersList = ExportIndividualOrders(allOrdersList)
         groupedOrderList = splitVenueLists(individualOrdersList)
 
         updateStudentTable(groupedOrderList)
