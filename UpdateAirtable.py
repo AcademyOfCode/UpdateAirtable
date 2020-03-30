@@ -10,6 +10,7 @@ from datetime import timedelta
 from airtable_wrapper.Airtable import Airtable
 from database.dao.DAO import DAO
 from google_drive.GoogleDrive import GoogleDrive
+from slack_api.Slack import Slack
 from squarespace.Squarespace import Squarespace
 
 parser = argparse.ArgumentParser()
