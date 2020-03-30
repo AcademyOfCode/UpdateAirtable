@@ -58,7 +58,7 @@ def get_end_date():
 
     return endDate.strftime(DATE_FORMAT)
 
-def splitVenueLists(ordersList):
+def split_venue_lists(ordersList):
     grouped = {}
     for elem in ordersList:
         if "Summer" in elem['lineItems']['productName']:
@@ -398,7 +398,7 @@ def main():
         inventory = squarespace.get_inventory()
         updateClassTable(inventory)
 
-        orders = splitVenueLists(orders)
+        orders = split_venue_lists(orders)
 
         updateStudentTable(orders)
 
@@ -408,13 +408,13 @@ def main():
 
     print('\nAirtable is up to date')
 
-    # write_end_date_to_file(get_end_date(), google_drive)
-    #
-    # slack = Slack(args.slackApiKey)
-    # slack.send_message('#airtable-last-updated', 'Last Update: ' + get_end_date())
-    #
-    # end = time.time()
-    # print(str(round(end - start, 2)) + ' secs')
+    write_end_date_to_file(get_end_date(), google_drive)
+
+    slack = Slack(args.slackApiKey)
+    slack.send_message('#airtable-last-updated', 'Last Update: ' + get_end_date())
+
+    end = time.time()
+    print(str(round(end - start, 2)) + ' secs')
 
 if __name__ == '__main__':
     main()
