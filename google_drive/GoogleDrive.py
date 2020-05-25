@@ -59,5 +59,4 @@ class GoogleDrive:
     def edit_file(self, file_path, file_id, mime_type):
         file_metadata = {"name": os.path.basename(file_path).split(".")[0]}
         media = MediaFileUpload(file_path, mimetype=mime_type)
-
         return self.__access.files().update(fileId=file_id, body=file_metadata, media_body=media).execute()

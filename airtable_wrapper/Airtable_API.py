@@ -1,4 +1,6 @@
-class Airtable:
+from airtable import Airtable
+
+class Airtable_API:
     def __init__(self, base_key, table_name, api_key):
         self.__table = Airtable(base_key, table_name, api_key)
 

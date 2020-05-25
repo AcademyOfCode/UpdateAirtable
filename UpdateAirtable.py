@@ -7,7 +7,7 @@ import datetime
 
 from datetime import timedelta
 
-from airtable_wrapper.Airtable import Airtable
+from airtable_wrapper.Airtable_API import Airtable_API
 from database.dao.DAO import DAO
 from google_drive.GoogleDrive import GoogleDrive
 from slack_api.Slack import Slack
@@ -25,10 +25,13 @@ squarespaceInventoryApiKey = args.squarespaceInventoryApiKey
 
 airtableApiKey = args.airtableApiKey
 
-product_names_to_ignore = ['Custom payment amount', 'Online mini-camps']
-airtable_base_key_dict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o', 'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
-                     'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP', 'Subscriptions': 'app6o8RdxKplDEzuk', 'Summer Camps 2020': 'appgyHx1HXJGzLlfk'}
-nonTechClubBases = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College', 'Newbridge College', 'Synge Street CBS', 'Virtual Venue', 'Summer Camps 2020']
+airtable_base_key_dict = {'Oatlands College': 'appw2m4IGMCCW2AFd', 'St Pauls College': 'app6TZs7NzO5dYIap', 'St. Colmcilles CS': 'appFA3WwPypeQgg4o',
+                          'Castleknock Community College': 'appqieHXlKvWWSfB4', 'Newbridge College':'app8XtrD48LCTs1fr',
+                          'Synge Street CBS':'appVkqUpJ3p5UzdTO', 'Virtual Venue': 'appeAMZ0zlOSKGOc0', 'Tech Clubs': 'appZONEatk4ekDGFP',
+                          'Subscriptions': 'app6o8RdxKplDEzuk', 'Daily Summer Camps': 'appTo3JLD03mEjOBI',
+                          '10 Week Summer Coding Term': 'appxHL4pv5o8TQjAQ'}
+nonTechClubBases = ['Oatlands College', 'St Pauls College', 'St. Colmcilles CS', 'Castleknock Community College',
+                    'Newbridge College', 'Synge Street CBS', 'Virtual Venue', 'Daily Summer Camps', '10 Week Summer Coding Term']
 
 lastUpdateDateFilePath = os.path.dirname(os.path.abspath(__file__)) + '\LastClassListUpdateDate.txt'
 lastUpdateDateID = '1JqP_9XCoeb8B8dlhyTYcuRRltr24CwSCnXyAfckAoPA'
@@ -39,7 +42,7 @@ def write_end_date_to_file(end_date, google_drive):
     with open(lastUpdateDateFilePath, 'w') as file:
         file.write(end_date)
 
-    google_drive.editFile(lastUpdateDateFilePath, lastUpdateDateID, "application/vnd.google-apps.document")
+    google_drive.edit_file(lastUpdateDateFilePath, lastUpdateDateID, "application/vnd.google-apps.document")
 
 def get_start_date(google_drive):
     google_drive.download_file(lastUpdateDateID, "text/plain", lastUpdateDateFilePath)
@@ -63,7 +66,7 @@ def split_venue_lists(ordersList):
     grouped = {}
     for elem in ordersList:
         if "Summer" in elem['lineItems']['productName']:
-            key = "Summer"
+            key = elem['lineItems']['productName']
         else:
             key = elem['lineItems']['productName'].split('- ')[1].split(',')[0]
         grouped.setdefault(key, []).append(elem)
@@ -74,47 +77,80 @@ def updateClassTable(currentTermVariantsList):
     print('\nUpdating Class Information on Airtable...')
 
     for venueVariants in currentTermVariantsList:
-
-        if 'Summer' in venueVariants[0].split(' - ')[0]:
-            venue_name = 'Summer Camps 2020'
-            airtable_venue_table = Airtable(base_key, 'Venue', airtableApiKey)
+        if 'Daily Summer Camps' in venueVariants[0]:
+            venue_name = 'Daily Summer Camps'
+        elif '10 Week Summer Coding Term' in venueVariants[0]:
+            venue_name = '10 Week Summer Coding Term'
         elif venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") not in nonTechClubBases:
             venue_name = 'Tech Clubs'
-            airtable_venue_table = Airtable(base_key, 'Venue', airtableApiKey)
+            airtable_venue_table = Airtable_API(base_key, 'Venue', airtableApiKey)
         else:
             venue_name = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
         
         base_key = airtable_base_key_dict[venue_name]
 
-        airtable_class_table = Airtable(base_key, 'Class', airtableApiKey)
+        airtable_class_table = Airtable_API(base_key, 'Class', airtableApiKey)
 
         for venueVariant in venueVariants:
-            if base_key == airtable_base_key_dict['Tech Clubs'] or base_key == airtable_base_key_dict['Summer Camps 2020']:
+            if base_key == airtable_base_key_dict['Tech Clubs']:
                 field_name = 'Name'
                 field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
                 if not DAO.search(airtable_venue_table, field_name, field_value):
                     DAO.insert(airtable_venue_table, {field_name: field_value})
 
-            if 'Summer' in venueVariant:
+            if 'Daily Summer Camp' in venueVariant:
                 field_name = "Class Name"
-                field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' \
-                              + venueVariant.split('[')[1].split(',')[0] + ', ' \
-                              + venueVariant.split(', ')[1].split(' (')[0] + ', ' \
-                              + venueVariant.split(', ')[1].split('(')[1].split(')')[0] + ', ' \
-                              + venueVariant.split(' - ')[0]
+
+                field_value = venueVariant.split('[')[1].split(', ')[0] + ', ' \
+                              + venueVariant.split('[')[1].split(', ')[3].split(']')[0] + ', ' \
+                              + venueVariant.split('[')[1].split(', ')[2]
+
                 if not DAO.search(airtable_class_table, field_name, field_value):
-                    field_name = 'Name'
-                    field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "")
-                    venue = DAO.search(airtable_venue_table, field_name, field_value)
-                    
-                    fields = {'Term': venueVariant.split(' - ')[0],
-                              'Venue': [venue[0]['id']],
-                              'Week': venueVariant.split('[')[1].split(',')[0],
-                              'Time': venueVariant.split(', ')[1].split(' (')[0],
-                              'Age Group': venueVariant.split(', ')[1].split('(')[1].split(')')[0]
+                    fields = {'Week': venueVariant.split('[')[1].split(', ')[0],
+                              'Time': venueVariant.split('[')[1].split(', ')[3].split(']')[0],
+                              'Age Group': venueVariant.split('[')[1].split(', ')[2]
                               }
+                    print('Inserting "' + field_value + '" into Class Table')
                     DAO.insert(airtable_class_table, fields)
-                    print('Inserting "' + venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(' (')[0] + ', ' + venueVariant.split(', ')[1].split('(')[1].split(')')[0] + ', ' + venueVariant.split(' - ')[0] + '" into Class Table')
+            elif '10 Week Summer Coding Term' in venueVariant:
+                field_name = "Class Name"
+
+                if 'None' in venueVariant:
+                    field_value = venueVariant.split('[')[1].split(', ')[1][:-1] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[2] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[0]
+
+                    if not DAO.search(airtable_class_table, field_name, field_value):
+                        fields = {'Day': venueVariant.split('[')[1].split(', ')[1][:-1],
+                                  'Time': venueVariant.split('[')[1].split(', ')[2],
+                                  'Age Group': venueVariant.split('[')[1].split(', ')[0]
+                                  }
+                        print('Inserting "' + field_value + '" into Class Table')
+                        DAO.insert(airtable_class_table, fields)
+                else:
+                    field_value = venueVariant.split('[')[1].split(', ')[1][:-1] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[2] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[0]
+
+                    if not DAO.search(airtable_class_table, field_name, field_value):
+                        fields = {'Day': venueVariant.split('[')[1].split(', ')[1][:-1],
+                                  'Time': venueVariant.split('[')[1].split(', ')[2],
+                                  'Age Group': venueVariant.split('[')[1].split(', ')[0]
+                                  }
+                        print('Inserting "' + field_value + '" into Class Table')
+                        DAO.insert(airtable_class_table, fields)
+
+                    field_value = venueVariant.split('[')[1].split(', ')[4][:-1] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[5].split(']')[0] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[3]
+
+                    if not DAO.search(airtable_class_table, field_name, field_value):
+                        fields = {'Day': venueVariant.split('[')[1].split(', ')[4][:-1],
+                                  'Time': venueVariant.split('[')[1].split(', ')[5].split(']')[0],
+                                  'Age Group': venueVariant.split('[')[1].split(', ')[3]
+                                  }
+                        print('Inserting "' + field_value + '" into Class Table')
+                        DAO.insert(airtable_class_table, fields)
             else:
                 field_name = "Class Name"
                 field_value = venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' \
@@ -141,14 +177,17 @@ def updateClassTable(currentTermVariantsList):
                                   }
 
                     DAO.insert(airtable_class_table, fields)
-
                     print('Inserting "' + venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") + ', ' + venueVariant.split('[')[1].split(',')[0] + ', ' + venueVariant.split(', ')[1].split(',')[0] + ', ' + venueVariant.split(', ')[2].split(']')[0] + ', ' + venueVariant.split(' - ')[0] + '" into Class Table')
 
 def updateStudentTable(groupedOrderList):
     print('\nUpdating Student Information on Airtable...')
 
     for venueOrderList in groupedOrderList:
-        if 'Summer' in venueOrderList[0]['lineItems']['productName']:
+        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName']:
+            venue_name = 'Daily Summer Camps'
+        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
+            venue_name = '10 Week Summer Coding Term'
+        elif 'Summer' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Summer Camps 2020'
         elif venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") not in nonTechClubBases:
             venue_name = 'Tech Clubs'
@@ -157,7 +196,7 @@ def updateStudentTable(groupedOrderList):
         
         base_key = airtable_base_key_dict[venue_name]
 
-        airtable_student_table = Airtable(base_key, 'Student', airtableApiKey)
+        airtable_student_table = Airtable_API(base_key, 'Student', airtableApiKey)
 
         prevOrderID = 0
         thirdOrder = False
@@ -201,7 +240,11 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
     added_order = False
 
     for venueOrderList in orderList:
-        if 'Summer' in venueOrderList[0]['lineItems']['productName']:
+        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName']:
+            venue_name = 'Daily Summer Camps'
+        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
+            venue_name = '10 Week Summer Coding Term'
+        elif 'Summer' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Summer Camps 2020'
         elif venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") not in nonTechClubBases:
             venue_name = 'Tech Clubs'
@@ -209,9 +252,9 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
             venue_name = venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
         base_key = airtable_base_key_dict[venue_name]
 
-        airtable_student_registration_table = Airtable(base_key, 'Student Registration', airtableApiKey)
-        airtable_student_table = Airtable(base_key, 'Student', airtableApiKey)
-        airtable_class_table = Airtable(base_key, 'Class', airtableApiKey)
+        airtable_student_registration_table = Airtable_API(base_key, 'Student Registration', airtableApiKey)
+        airtable_student_table = Airtable_API(base_key, 'Student', airtableApiKey)
+        airtable_class_table = Airtable_API(base_key, 'Class', airtableApiKey)
 
         prevOrderID = 0
         thirdOrder = False
@@ -224,6 +267,8 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
 
             if 'Subscription' in order['lineItems']['productName'] or (len(order['lineItems']['variantOptions']) > 1 and 'Annual Fee' in order['lineItems']['variantOptions'][1]['value']):
                 term = 'Spring 2020'
+            elif 'Summer' in order['lineItems']['productName']:
+                term = 'Summer 2020'
             else:
                 if '\'20' in order['lineItems']['productName'].split(' -')[0].split(',')[0] or  '2020' in order['lineItems']['productName'].split(' -')[0].split(',')[0]:
                     term = order['lineItems']['productName'].split(' -')[0].split(',')[0].replace('\'20', '2020')
@@ -249,48 +294,117 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
                 dobIndex = 3
                 thirdOrder = False
 
-            # This IF statement is hard-coded for Synge Street
-            if order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' + order['lineItems']['variantOptions'][0]['value'].split(', ')[1] \
-                                                   + ', ' + order['lineItems']['variantOptions'][0]['value'].split(', ')[2] + ', ' + term == 'Synge Street CBS, Wednesday, 18:30-19:30, 5th-6th Class, Spring 2020' or \
-                                                   order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "") + ', ' + order['lineItems']['variantOptions'][0]['value'].split(',')[0] + ', ' + order['lineItems']['variantOptions'][0]['value'].split(', ')[1] \
-                                                   + ', ' + order['lineItems']['variantOptions'][0]['value'].split(', ')[2] + ', ' + term == 'Synge Street CBS, Wednesday, 17:30-18:30, 2nd-4th Class, Spring 2020':
-                classLevel = '2nd-6th Class'
-                time = '17:30-18:30'
+            name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
+            name = handle_special_name_cases(name)
+            dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
+
+            if 'Daily Summer Camp' in venue_name:
+                startDate = order['lineItems']['variantOptions'][0]['value']
+                numWeeks = int(order['lineItems']['variantOptions'][1]['value'])
+                classLevel = order['lineItems']['variantOptions'][2]['value'].split(', ')[0]
+                time = order['lineItems']['variantOptions'][2]['value'].split(', ')[1]
+
+                if not DAO.search(airtable_student_registration_table, 'Primary Key', name + ' (' + dateOfBirth + '), "' + startDate + ', ' + time + ', ' + classLevel + '"'):
+                        print('Inserting ' + '"' + name + '", "' + startDate + ', ' + time + ', ' + classLevel + '" into Student Registration Table...')
+
+                        added_order = True
+                        studentRecord = DAO.search(airtable_student_table, 'Primary Key', name + ' (' + dateOfBirth + ')')
+                        classRecord = DAO.search(airtable_class_table, 'Class Name', startDate + ', ' + time + ', ' + classLevel)
+
+                        DAO.insert(airtable_student_registration_table,
+                                   {'Student': [studentRecord[0]['id']],
+                                    'Class': [classRecord[0]['id']],
+                                    'Start Date': startDate,
+                                    'No. Weeks': numWeeks,
+                                    'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
+                                    'Contact Phone No.': order['billingAddress']['phone'],
+                                    'Contact Email': order['customerEmail'],
+                                    'Other Details': order['lineItems']['customizations'][10]['value'],
+                                    'Photography Consent': photographyConsent,
+                                    'Returning Student': returningStudent,
+                                    'School & Class': order['lineItems']['customizations'][6]['value']})
+            elif '10 Week Summer Coding Term' in venue_name:
+                day = order['lineItems']['variantOptions'][0]['value'].split(', ')[1][:-1]
+                classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[0]
+                time = order['lineItems']['variantOptions'][0]['value'].split(', ')[2]
+
+                if not DAO.search(airtable_student_registration_table, 'Primary Key', name + ' (' + dateOfBirth + '), "' + day + ', ' + time + ', ' + classLevel + '"'):
+                    print('Inserting ' + '"' + name + '", "' + day + ', ' + time + ', ' + classLevel + '" into Student Registration Table...')
+
+                    added_order = True
+                    studentRecord = DAO.search(airtable_student_table, 'Primary Key', name + ' (' + dateOfBirth + ')')
+                    classRecord = DAO.search(airtable_class_table, 'Class Name', day + ', ' + time + ', ' + classLevel)
+
+                    DAO.insert(airtable_student_registration_table,
+                               {'Student': [studentRecord[0]['id']],
+                                'Class': [classRecord[0]['id']],
+                                'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
+                                'Contact Phone No.': order['billingAddress']['phone'],
+                                'Contact Email': order['customerEmail'],
+                                'Other Details': order['lineItems']['customizations'][10]['value'],
+                                'Photography Consent': photographyConsent,
+                                'Returning Student': returningStudent,
+                                'School & Class': order['lineItems']['customizations'][6]['value']})
+
+                if 'None' not in order['lineItems']['variantOptions'][1]['value']:
+                    day = order['lineItems']['variantOptions'][1]['value'].split(', ')[1][:-1]
+                    classLevel = order['lineItems']['variantOptions'][1]['value'].split(', ')[0]
+                    time = order['lineItems']['variantOptions'][1]['value'].split(', ')[2]
+
+                    if not DAO.search(airtable_student_registration_table, 'Primary Key', name + ' (' + dateOfBirth + '), "' + day + ', ' + time + ', ' + classLevel + '"'):
+                        print('Inserting ' + '"' + name + '", "' + day + ', ' + time + ', ' + classLevel + '" into Student Registration Table...')
+
+                        added_order = True
+                        studentRecord = DAO.search(airtable_student_table, 'Primary Key', name + ' (' + dateOfBirth + ')')
+                        classRecord = DAO.search(airtable_class_table, 'Class Name', day + ', ' + time + ', ' + classLevel)
+
+                        DAO.insert(airtable_student_registration_table,
+                                   {'Student': [studentRecord[0]['id']],
+                                    'Class': [classRecord[0]['id']],
+                                    'Contact Name': order['billingAddress']['firstName'].title() + ' ' +
+                                                    order['billingAddress']['lastName'].title(),
+                                    'Contact Phone No.': order['billingAddress']['phone'],
+                                    'Contact Email': order['customerEmail'],
+                                    'Other Details': order['lineItems']['customizations'][10]['value'],
+                                    'Photography Consent': photographyConsent,
+                                    'Returning Student': returningStudent,
+                                    'School & Class': order['lineItems']['customizations'][6]['value']})
+
             else:
-                classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[2].replace(' -','-')
+                classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[2].replace(' -', '-')
 
                 if 'Secondary' in classLevel:
                     classLevel = classLevel.title()
                 time = order['lineItems']['variantOptions'][0]['value'].split(', ')[1].replace(' ', '')
 
-            if 'to' in classLevel:
-                classLevel = classLevel.replace(' to ', '-')
+                if 'to' in classLevel:
+                    classLevel = classLevel.replace(' to ', '-')
 
-            name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
-            name = handle_special_name_cases(name)
+                day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
 
-            dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
-            venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
-            day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
+                if not DAO.search(airtable_student_registration_table, 'Primary Key', name + ' (' + dateOfBirth + '), "' + venue_name + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
+                    studentDetailList = []
+                    studentDetailList.append(name + ' (' + dateOfBirth + ')')
+                    studentDetailList.append(venue_name)
+                    studentDetailList.append(time)
+                    studentDetailList.append(day)
+                    if studentDetailList not in subscriptionDetails and [term] not in subscriptionTerm:
+                        print('Inserting ' + '"' + name + '", "' + venue_name + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '" into Student Registration Table...')
 
-            if not DAO.search(airtable_student_registration_table, 'Primary Key', name + ' (' + dateOfBirth + '), "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '"'):
-                studentDetailList = []
-                studentDetailList.append(name + ' (' + dateOfBirth + ')')
-                studentDetailList.append(venue)
-                studentDetailList.append(time)
-                studentDetailList.append(day)
-                if studentDetailList not in subscriptionDetails and [term] not in subscriptionTerm:
-                    print('Inserting ' + '"' + name + '", "' + venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term + '" into Student Registration Table...')
+                        added_order = True
+                        studentRecord = airtable_student_table.search('Primary Key', name + ' (' + dateOfBirth + ')')
+                        classRecord = airtable_class_table.search('Class Name', venue_name + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term)
 
-                    added_order = True
-
-                    studentRecord = airtable_student_table.search('Primary Key', name + ' (' + order['lineItems']['customizations'][dobIndex]['value'] + ')')
-
-                    classRecord = airtable_class_table.search('Class Name', venue + ', ' + day + ', ' + time + ', ' + classLevel + ', ' + term)
-
-                    DAO.insert(airtable_student_registration_table, {'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']], 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
-                                               'Contact Phone No.': order['billingAddress']['phone'],'Contact Email': order['customerEmail'], 'Other Details': order['lineItems']['customizations'][10]['value'], 'Photography Consent': photographyConsent,
-                                               'Returning Student': returningStudent, 'School & Class': order['lineItems']['customizations'][6]['value']})
+                        DAO.insert(airtable_student_registration_table,
+                                   {'Student': [studentRecord[0]['id']], 'Class': [classRecord[0]['id']],
+                                    'Contact Name': order['billingAddress']['firstName'].title() + ' ' +
+                                                    order['billingAddress']['lastName'].title(),
+                                    'Contact Phone No.': order['billingAddress']['phone'],
+                                    'Contact Email': order['customerEmail'],
+                                    'Other Details': order['lineItems']['customizations'][10]['value'],
+                                    'Photography Consent': photographyConsent,
+                                    'Returning Student': returningStudent,
+                                    'School & Class': order['lineItems']['customizations'][6]['value']})
 
             prevOrderID = order['orderNumber']
 
@@ -378,7 +492,7 @@ def handle_special_name_cases(name):
 
 def get_subscription_details():
     base_key = airtable_base_key_dict['Subscriptions']
-    airtable_subscriptions_table = Airtable(base_key, 'Subscriptions', airtableApiKey)
+    airtable_subscriptions_table = Airtable_API(base_key, 'Subscriptions', airtableApiKey)
 
     subscriptions = DAO.get_all(airtable_subscriptions_table)
 
@@ -390,10 +504,10 @@ def get_subscription_details():
 def main():
     start = time.time()
 
-    google_drive = GoogleDrive()
+    google_drive_access = GoogleDrive()
 
     squarespace = Squarespace(squarespaceOrderApiKey, squarespaceInventoryApiKey)
-    orders = squarespace.get_orders_by_date(get_start_date(google_drive), get_end_date())
+    orders = squarespace.get_orders_by_date(get_start_date(google_drive_access), get_end_date())
 
     if orders:
         inventory = squarespace.get_inventory()
@@ -402,14 +516,13 @@ def main():
         orders = split_venue_lists(orders)
 
         updateStudentTable(orders)
-
         subscriptionDetails, subscriptionTerm = get_subscription_details()
         if updateStudentRegistrationTable(orders, subscriptionDetails, subscriptionTerm):
             updateSubscriptionsTable(orders)
 
     print('\nAirtable is up to date')
 
-    write_end_date_to_file(get_end_date(), google_drive)
+    write_end_date_to_file(get_end_date(), google_drive_access)
 
     slack = Slack(args.slackApiKey)
     slack.send_message('#airtable-last-updated', 'Last Update: ' + get_end_date())

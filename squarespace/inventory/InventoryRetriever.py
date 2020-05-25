@@ -17,7 +17,7 @@ class InventoryRetriever:
         page_number = 1
         inventory = []
 
-        request = Request.Request(INVENTORY_API_URL, self.__request_value, self.__request_period, self.__headers)
+        request = Request(INVENTORY_API_URL, self.__request_value, self.__request_period, self.__headers)
         response, error = request.get_request()
 
         for index in range(len(response['inventory'])):
@@ -32,7 +32,7 @@ class InventoryRetriever:
                 ('cursor', response['pagination']['nextPageCursor'])
             ]
 
-            request = Request.Request(INVENTORY_API_URL, self.__request_value, params, self.__request_period, self.__headers)
+            request = Request(INVENTORY_API_URL, self.__request_value, self.__request_period, self.__headers, params)
             response, error = request.get_request()
 
             for index in range(len(response['inventory'])):
@@ -46,20 +46,14 @@ class InventoryRetriever:
         filtered_inventory = []
 
         for i in range(len(inventory)):
-            if ('Spring' in inventory[i]['descriptor'].split('[')[0] or 'Summer' in
-                inventory[i]['descriptor'].split('[')[0]) and (
-                    '\'20' in inventory[i]['descriptor'].split('[')[0] or '2020' in
-                    inventory[i]['descriptor'].split('[')[0]):
+            if 'Daily Summer Camp' in inventory[i]['descriptor'].split('[')[0] or '10 Week Summer Coding Term' in inventory[i]['descriptor'].split('[')[0]:
                 current_term_variant = inventory[i]['descriptor']
 
                 if '\'20' in current_term_variant:
                     current_term_variant = current_term_variant.replace('\'20', '2020')
 
-                if ', ' in current_term_variant.split('- ')[1].split('[')[0]:
-                    current_term_variant = current_term_variant[0:current_term_variant.index(',')] + ' ' + current_term_variant[
-                                                                                                           current_term_variant.index(
-                                                                                                         '['):len(
-                                                                                                               current_term_variant)]
+                # if ', ' in current_term_variant.split('- ')[1].split('[')[0]:
+                #     current_term_variant = current_term_variant[0:current_term_variant.index(',')] + ' ' + current_term_variant[current_term_variant.index('['):len(current_term_variant)]
 
                 if len(current_term_variant.split(',')) > 3:
                     if not any(current_term_variant[0:current_term_variant.rfind(',')] in x for x in filtered_inventory):
