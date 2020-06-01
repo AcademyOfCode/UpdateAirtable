@@ -297,6 +297,8 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
             name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
             name = handle_special_name_cases(name)
             dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
+            lastTerm = order['lineItems']['customizations'][8]['value']
+            additionalSupport = order['lineItems']['customizations'][10]['value']
 
             if 'Daily Summer Camp' in venue_name:
                 startDate = order['lineItems']['variantOptions'][0]['value']
@@ -319,9 +321,11 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
                                     'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
                                     'Contact Phone No.': order['billingAddress']['phone'],
                                     'Contact Email': order['customerEmail'],
-                                    'Other Details': order['lineItems']['customizations'][10]['value'],
+                                    'Other Details': order['lineItems']['customizations'][13]['value'],
                                     'Photography Consent': photographyConsent,
                                     'Returning Student': returningStudent,
+                                    'Last Term': lastTerm,
+                                    'Additional Support': additionalSupport,
                                     'School & Class': order['lineItems']['customizations'][6]['value']})
             elif '10 Week Summer Coding Term' in venue_name:
                 day = order['lineItems']['variantOptions'][0]['value'].split(', ')[1][:-1]
@@ -341,9 +345,11 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
                                 'Contact Name': order['billingAddress']['firstName'].title() + ' ' + order['billingAddress']['lastName'].title(),
                                 'Contact Phone No.': order['billingAddress']['phone'],
                                 'Contact Email': order['customerEmail'],
-                                'Other Details': order['lineItems']['customizations'][10]['value'],
+                                'Other Details': order['lineItems']['customizations'][13]['value'],
                                 'Photography Consent': photographyConsent,
                                 'Returning Student': returningStudent,
+                                'Last Term': lastTerm,
+                                'Additional Support': additionalSupport,
                                 'School & Class': order['lineItems']['customizations'][6]['value']})
 
                 if 'None' not in order['lineItems']['variantOptions'][1]['value']:
@@ -365,9 +371,11 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
                                                     order['billingAddress']['lastName'].title(),
                                     'Contact Phone No.': order['billingAddress']['phone'],
                                     'Contact Email': order['customerEmail'],
-                                    'Other Details': order['lineItems']['customizations'][10]['value'],
+                                    'Other Details': order['lineItems']['customizations'][13]['value'],
                                     'Photography Consent': photographyConsent,
                                     'Returning Student': returningStudent,
+                                    'Last Term': lastTerm,
+                                    'Additional Support': additionalSupport,
                                     'School & Class': order['lineItems']['customizations'][6]['value']})
 
             else:
@@ -510,12 +518,12 @@ def main():
     orders = squarespace.get_orders_by_date(get_start_date(google_drive_access), get_end_date())
 
     if orders:
-        inventory = squarespace.get_inventory()
-        updateClassTable(inventory)
+        # inventory = squarespace.get_inventory()
+        # updateClassTable(inventory)
 
         orders = split_venue_lists(orders)
 
-        updateStudentTable(orders)
+        # updateStudentTable(orders)
         subscriptionDetails, subscriptionTerm = get_subscription_details()
         if updateStudentRegistrationTable(orders, subscriptionDetails, subscriptionTerm):
             updateSubscriptionsTable(orders)
