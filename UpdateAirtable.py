@@ -518,12 +518,12 @@ def main():
     orders = squarespace.get_orders_by_date(get_start_date(google_drive_access), get_end_date())
 
     if orders:
-        # inventory = squarespace.get_inventory()
-        # updateClassTable(inventory)
+        inventory = squarespace.get_inventory()
+        updateClassTable(inventory)
 
         orders = split_venue_lists(orders)
 
-        # updateStudentTable(orders)
+        updateStudentTable(orders)
         subscriptionDetails, subscriptionTerm = get_subscription_details()
         if updateStudentRegistrationTable(orders, subscriptionDetails, subscriptionTerm):
             updateSubscriptionsTable(orders)
