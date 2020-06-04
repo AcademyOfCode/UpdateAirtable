@@ -77,7 +77,7 @@ def updateClassTable(currentTermVariantsList):
     print('\nUpdating Class Information on Airtable...')
 
     for venueVariants in currentTermVariantsList:
-        if 'Daily Summer Camps' in venueVariants[0]:
+        if 'Daily Summer Camps' in venueVariants[0] or 'Summer Camps \'20 - Weekly Registration' in venueVariants[0]:
             venue_name = 'Daily Summer Camps'
         elif '10 Week Summer Coding Term' in venueVariants[0]:
             venue_name = '10 Week Summer Coding Term'
@@ -98,7 +98,7 @@ def updateClassTable(currentTermVariantsList):
                 if not DAO.search(airtable_venue_table, field_name, field_value):
                     DAO.insert(airtable_venue_table, {field_name: field_value})
 
-            if 'Daily Summer Camp' in venueVariant:
+            if 'Daily Summer Camp' in venue_name:
                 field_name = "Class Name"
 
                 field_value = venueVariant.split('[')[1].split(', ')[0] + ', ' \
@@ -112,7 +112,7 @@ def updateClassTable(currentTermVariantsList):
                               }
                     print('Inserting "' + field_value + '" into Class Table')
                     DAO.insert(airtable_class_table, fields)
-            elif '10 Week Summer Coding Term' in venueVariant:
+            elif '10 Week Summer Coding Term' in venue_name:
                 field_name = "Class Name"
 
                 if 'None' in venueVariant:
@@ -183,7 +183,8 @@ def updateStudentTable(groupedOrderList):
     print('\nUpdating Student Information on Airtable...')
 
     for venueOrderList in groupedOrderList:
-        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName']:
+        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName'] or \
+            'Summer Camps \'20 - Weekly Registration' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Daily Summer Camps'
         elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
             venue_name = '10 Week Summer Coding Term'
@@ -240,7 +241,8 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
     added_order = False
 
     for venueOrderList in orderList:
-        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName']:
+        if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName'] or \
+                'Summer Camps \'20 - Weekly Registration' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Daily Summer Camps'
         elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
             venue_name = '10 Week Summer Coding Term'
@@ -501,40 +503,31 @@ def handle_special_name_cases(name):
 def get_subscription_details():
     base_key = airtable_base_key_dict['Subscriptions']
     airtable_subscriptions_table = Airtable_API(base_key, 'Subscriptions', airtableApiKey)
-
     subscriptions = DAO.get_all(airtable_subscriptions_table)
-
     subscription_details = [subscription["fields"]["Primary Key"].split(', ')[0:4] for subscription in subscriptions]
     subscription_term = [subscription["fields"]["Primary Key"].split(', ')[4] for subscription in subscriptions]
-
     return subscription_details, subscription_term
 
 def main():
     start = time.time()
-
     google_drive_access = GoogleDrive()
-
     squarespace = Squarespace(squarespaceOrderApiKey, squarespaceInventoryApiKey)
     orders = squarespace.get_orders_by_date(get_start_date(google_drive_access), get_end_date())
 
     if orders:
         inventory = squarespace.get_inventory()
         updateClassTable(inventory)
-
         orders = split_venue_lists(orders)
-
         updateStudentTable(orders)
         subscriptionDetails, subscriptionTerm = get_subscription_details()
+
         if updateStudentRegistrationTable(orders, subscriptionDetails, subscriptionTerm):
             updateSubscriptionsTable(orders)
 
-    print('\nAirtable is up to date')
-
     write_end_date_to_file(get_end_date(), google_drive_access)
-
     slack = Slack(args.slackApiKey)
     slack.send_message('#airtable-last-updated', 'Last Update: ' + get_end_date())
-
+    print('\nAirtable is up to date')
     end = time.time()
     print(str(round(end - start, 2)) + ' secs')
 

@@ -46,12 +46,14 @@ class InventoryRetriever:
         filtered_inventory = []
 
         for i in range(len(inventory)):
-            if 'Daily Summer Camp' in inventory[i]['descriptor'].split('[')[0] or '10 Week Summer Coding Term' in inventory[i]['descriptor'].split('[')[0]:
+            if 'Daily Summer Camp' in inventory[i]['descriptor'].split('[')[0] or \
+                    '10 Week Summer Coding Term' in inventory[i]['descriptor'].split('[')[0] or \
+                    'Summer Camps \'20 - Weekly Registration' in inventory[i]['descriptor'].split('[')[0]:
                 current_term_variant = inventory[i]['descriptor']
 
-                if '\'20' in current_term_variant:
-                    current_term_variant = current_term_variant.replace('\'20', '2020')
-
+                # if '\'20' in current_term_variant:
+                #     current_term_variant = current_term_variant.replace('\'20', '2020')
+                #
                 # if ', ' in current_term_variant.split('- ')[1].split('[')[0]:
                 #     current_term_variant = current_term_variant[0:current_term_variant.index(',')] + ' ' + current_term_variant[current_term_variant.index('['):len(current_term_variant)]
 
