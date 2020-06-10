@@ -115,26 +115,26 @@ def updateClassTable(currentTermVariantsList):
             elif '10 Week Summer Coding Term' in venue_name:
                 field_name = "Class Name"
 
-                if 'None' in venueVariant:
+                if 'None' in venueVariant or 'Overflow Stream Classes' in venueVariant:
                     field_value = venueVariant.split('[')[1].split(', ')[1][:-1] + ', ' \
-                                  + venueVariant.split('[')[1].split(', ')[2] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[2].split(']')[0] + ', ' \
                                   + venueVariant.split('[')[1].split(', ')[0]
 
                     if not DAO.search(airtable_class_table, field_name, field_value):
                         fields = {'Day': venueVariant.split('[')[1].split(', ')[1][:-1],
-                                  'Time': venueVariant.split('[')[1].split(', ')[2],
+                                  'Time': venueVariant.split('[')[1].split(', ')[2].split(']')[0],
                                   'Age Group': venueVariant.split('[')[1].split(', ')[0]
                                   }
                         print('Inserting "' + field_value + '" into Class Table')
                         DAO.insert(airtable_class_table, fields)
                 else:
                     field_value = venueVariant.split('[')[1].split(', ')[1][:-1] + ', ' \
-                                  + venueVariant.split('[')[1].split(', ')[2] + ', ' \
+                                  + venueVariant.split('[')[1].split(', ')[2].split(']')[0] + ', ' \
                                   + venueVariant.split('[')[1].split(', ')[0]
 
                     if not DAO.search(airtable_class_table, field_name, field_value):
                         fields = {'Day': venueVariant.split('[')[1].split(', ')[1][:-1],
-                                  'Time': venueVariant.split('[')[1].split(', ')[2],
+                                  'Time': venueVariant.split('[')[1].split(', ')[2].split(']')[0],
                                   'Age Group': venueVariant.split('[')[1].split(', ')[0]
                                   }
                         print('Inserting "' + field_value + '" into Class Table')
@@ -196,7 +196,6 @@ def updateStudentTable(groupedOrderList):
             venue_name = venueOrderList[0]['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
         
         base_key = airtable_base_key_dict[venue_name]
-
         airtable_student_table = Airtable_API(base_key, 'Student', airtableApiKey)
 
         prevOrderID = 0
