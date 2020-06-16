@@ -79,7 +79,7 @@ def updateClassTable(currentTermVariantsList):
     for venueVariants in currentTermVariantsList:
         if 'Daily Summer Camps' in venueVariants[0] or 'Summer Camps \'20 - Weekly Registration' in venueVariants[0]:
             venue_name = 'Daily Summer Camps'
-        elif '10 Week Summer Coding Term' in venueVariants[0]:
+        elif '10 Week Summer Coding Term' in venueVariants[0] or 'Summer Coding Term - Overflow Stream Classes' in venueVariants[0]:
             venue_name = '10 Week Summer Coding Term'
         elif venueVariants[0].split('- ')[1].split(' [')[0].replace("'", "") not in nonTechClubBases:
             venue_name = 'Tech Clubs'
@@ -115,7 +115,7 @@ def updateClassTable(currentTermVariantsList):
             elif '10 Week Summer Coding Term' in venue_name:
                 field_name = "Class Name"
 
-                if 'None' in venueVariant or 'Overflow Stream Classes' in venueVariant:
+                if 'None' in venueVariant or 'Overflow Stream Classes' in venueVariant or 'Summer Coding Term - Overflow Stream Classes' in venueVariants[0]:
                     field_value = venueVariant.split('[')[1].split(', ')[1][:-1] + ', ' \
                                   + venueVariant.split('[')[1].split(', ')[2].split(']')[0] + ', ' \
                                   + venueVariant.split('[')[1].split(', ')[0]
@@ -186,7 +186,8 @@ def updateStudentTable(groupedOrderList):
         if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName'] or \
             'Summer Camps \'20 - Weekly Registration' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Daily Summer Camps'
-        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
+        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName'] or \
+            'Summer Coding Term - Overflow Stream Classes' in venueOrderList[0]['lineItems']['productName']:
             venue_name = '10 Week Summer Coding Term'
         elif 'Summer' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Summer Camps 2020'
@@ -243,7 +244,8 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
         if 'Daily Summer Camps' in venueOrderList[0]['lineItems']['productName'] or \
                 'Summer Camps \'20 - Weekly Registration' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Daily Summer Camps'
-        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName']:
+        elif '10 Week Summer Coding Term' in venueOrderList[0]['lineItems']['productName'] or \
+            'Summer Coding Term - Overflow Stream Classes' in venueOrderList[0]['lineItems']['productName']:
             venue_name = '10 Week Summer Coding Term'
         elif 'Summer' in venueOrderList[0]['lineItems']['productName']:
             venue_name = 'Summer Camps 2020'
@@ -426,9 +428,7 @@ def updateSubscriptionsTable(orderList):
         from airtable import airtable
 
         appId = airtable_base_key_dict['Subscriptions']
-
         airtableSubscriptions = airtable.Airtable(appId, 'Subscriptions', airtableApiKey)
-
         prevOrderID = 0
         thirdOrder = False
 
@@ -450,11 +450,8 @@ def updateSubscriptionsTable(orderList):
 
                 name = order['lineItems']['customizations'][nameIndex]['value'].title().replace("\'", "")
                 name = handle_special_name_cases(name)
-
                 dateOfBirth = order['lineItems']['customizations'][dobIndex]['value']
-
                 time = order['lineItems']['variantOptions'][0]['value'].split(', ')[1].replace(' ', '')
-
                 classLevel = order['lineItems']['variantOptions'][0]['value'].split(', ')[2].replace(' -', '-')
 
                 if 'Secondary' in classLevel:
@@ -464,7 +461,6 @@ def updateSubscriptionsTable(orderList):
                     classLevel = classLevel.replace(' to ', '-')
 
                 day = order['lineItems']['variantOptions'][0]['value'].split(',')[0]
-
                 venue = order['lineItems']['productName'].split('- ')[1].split(',')[0].replace("'", "")
 
                 if ('Autumn 2019' in order['lineItems']['productName'] and 'Spring 2020' in order['lineItems']['productName']) or ('Autumn \'19' in order['lineItems']['productName'] and 'Spring \'20' in order['lineItems']['productName']):
@@ -487,7 +483,6 @@ def updateSubscriptionsTable(orderList):
 
 def handle_special_name_cases(name):
     first_name = name.split()[0]
-
     if 'Mc' in name and 'Mc' not in first_name:
         index = name.find('Mc')
         name = name.replace("Mc", "").title()
@@ -496,7 +491,6 @@ def handle_special_name_cases(name):
         index = name.find('Mac')
         name = name.replace("Mac", "").title()
         name = name[:index] + 'Mac' + name[index:]
-
     return name
 
 def get_subscription_details():
@@ -512,10 +506,10 @@ def main():
     google_drive_access = GoogleDrive()
     squarespace = Squarespace(squarespaceOrderApiKey, squarespaceInventoryApiKey)
     orders = squarespace.get_orders_by_date(get_start_date(google_drive_access), get_end_date())
+    inventory = squarespace.get_inventory()
+    updateClassTable(inventory)
 
     if orders:
-        inventory = squarespace.get_inventory()
-        updateClassTable(inventory)
         orders = split_venue_lists(orders)
         updateStudentTable(orders)
         subscriptionDetails, subscriptionTerm = get_subscription_details()
