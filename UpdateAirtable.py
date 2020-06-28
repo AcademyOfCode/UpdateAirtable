@@ -355,7 +355,7 @@ def updateStudentRegistrationTable(orderList, subscriptionDetails, subscriptionT
                                 'Additional Support': additionalSupport,
                                 'School & Class': order['lineItems']['customizations'][6]['value']})
 
-                if 'None' not in order['lineItems']['variantOptions'][1]['value']:
+                if len(order['lineItems']['variantOptions']) > 1 and 'None' not in order['lineItems']['variantOptions'][1]['value']:
                     day = order['lineItems']['variantOptions'][1]['value'].split(', ')[1][:-1]
                     classLevel = order['lineItems']['variantOptions'][1]['value'].split(', ')[0]
                     time = order['lineItems']['variantOptions'][1]['value'].split(', ')[2]
