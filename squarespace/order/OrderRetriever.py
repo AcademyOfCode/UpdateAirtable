@@ -10,7 +10,7 @@ class OrderRetriever:
             'Authorization': 'Bearer ' + order_api_key,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36'
         }
-        self.__product_names_to_ignore = ['Custom payment amount', 'Spring']
+        self.__product_names_to_ignore = ['Custom payment amount', 'Spring', 'Autumn']
         self.__request_value = request_value
         self.__request_period = request_period
 
